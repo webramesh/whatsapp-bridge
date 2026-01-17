@@ -1,8 +1,8 @@
-const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    DisconnectReason
-} = require('@whiskeysockets/baileys');
+// @whiskeysockets/baileys is an ESM-only package. We'll load it dynamically
+// at runtime to avoid ERR_REQUIRE_ESM when running under CommonJS.
+let makeWASocket;
+let useMultiFileAuthState;
+let DisconnectReason;
 const express = require('express');
 const QRCode = require('qrcode');
 const path = require('path');
@@ -78,6 +78,22 @@ async function startBridge() {
         }
 
         console.log('Loading authentication state...');
+
+        // Dynamically import baileys (ESM) to avoid ERR_REQUIRE_ESM in CommonJS
+        if (!makeWASocket || !useMultiFileAuthState || !DisconnectReason) {
+            try {
+                const baileys = await import('@whiskeysockets/baileys');
+                // baileys may expose default or named exports depending on bundling
+                makeWASocket = baileys.default || baileys.makeWASocket || baileys;
+                useMultiFileAuthState = baileys.useMultiFileAuthState || baileys.useMultiFileAuthState;
+                DisconnectReason = baileys.DisconnectReason || (baileys.default && baileys.default.DisconnectReason) || baileys.DisconnectReason;
+                console.log('Dynamically loaded @whiskeysockets/baileys');
+            } catch (err) {
+                console.error('Failed to dynamically import @whiskeysockets/baileys:', err);
+                throw err;
+            }
+        }
+
         const { state, saveCreds } = await useMultiFileAuthState(SESSION_FOLDER);
 
         console.log('Creating WhatsApp socket...');
