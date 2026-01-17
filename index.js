@@ -100,7 +100,7 @@ async function startBridge() {
         socket = makeWASocket({
             auth: state,
             printQRInTerminal: false,
-            logger: pino({ level: 'silent' }),
+            logger: pino({ level: 'debug' }),
             browser: ['WhatsApp Bridge', 'Chrome', '4.0.0'],
             syncFullHistory: false,
             markOnlineOnConnect: true
@@ -137,19 +137,22 @@ async function startBridge() {
             }
 
             if (connection === 'close') {
+                // Log the full lastDisconnect for diagnostics
+                console.error('lastDisconnect object:', JSON.stringify(lastDisconnect, null, 2));
                 const reason = lastDisconnect?.error?.output?.statusCode;
                 console.log('Connection closed with reason:', reason);
                 connectionStatus = `Stopped (Reason: ${reason})`;
                 lastError = `Connection closed with code: ${reason}`;
-                
+
                 // For 405 errors, clear the session on next restart
                 if (reason === 405) {
                     console.log('405 error detected - session will be cleared on next restart');
                 }
-                
+
                 if (reason !== DisconnectReason.loggedOut) {
-                    console.log('Reconnecting in 5 seconds...');
-                    setTimeout(startBridge, 5000);
+                    const delay = reason === 405 ? 60000 : 5000; // backoff on 405 to avoid rate-limits
+                    console.log(`Reconnecting in ${delay / 1000} seconds...`);
+                    setTimeout(startBridge, delay);
                 } else {
                     console.log('Logged out - not reconnecting');
                 }
