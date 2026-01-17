@@ -1,0 +1,16 @@
+{
+    "name": "whatsapp-bridge",
+    "version": "1.0.0",
+    "description": "Lightweight WhatsApp Bridge for Laravel Billing System",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "dependencies": {
+        "@whiskeysockets/baileys": "^6.7.8",
+        "express": "^4.19.2",
+        "pino": "^9.5.0",
+        "qrcode": "^1.5.4",
+        "dotenv": "^16.4.5"
+    }
+}

@@ -1,0 +1,24 @@
+# WhatsApp Bridge - cPanel Passenger Configuration
+# This ensures all requests are properly routed to the Node.js app
+
+PassengerEnabled on
+PassengerAppRoot /home/YOUR_CPANEL_USERNAME/whatsapp-bridge
+PassengerAppType node
+PassengerStartupFile index.js
+
+# Allow all HTTP methods
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Preserve all query parameters
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ http://localhost:3000/$1 [P,L,QSA]
+</IfModule>
+
+# CORS headers if needed
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "POST, GET, OPTIONS, DELETE, PUT"
+    Header always set Access-Control-Allow-Headers "x-requested-with, Content-Type, origin, authorization, accept, client-security-token"
+</IfModule>
