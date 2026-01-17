@@ -109,6 +109,63 @@ async function startBridge() {
         console.log('Socket created successfully');
         console.log('Waiting for connection update...');
 
+        // Attach diagnostics to the underlying WebSocket to capture HTTP handshake responses
+        function attachWsDiagnostics(sock) {
+            try {
+                // baileys exposes the raw ws client in different properties across versions
+                const candidates = [sock && sock.conn, sock && sock.ws, sock && sock.socket, sock];
+                let ws = null;
+                for (const c of candidates) {
+                    if (!c) continue;
+                    // The ws client from the 'ws' package exposes 'on' and may have an _socket
+                    if (typeof c.on === 'function') { ws = c; break; }
+                    if (c && c.socket && typeof c.socket.on === 'function') { ws = c.socket; break; }
+                }
+
+                if (!ws) {
+                    // Underlying ws not available yet — try again shortly
+                    setTimeout(() => attachWsDiagnostics(sock), 800);
+                    return;
+                }
+
+                // unexpected-response is emitted when server responds with non-101 status
+                try {
+                    ws.on('unexpected-response', (req, res) => {
+                        try {
+                            console.error('WS unexpected-response detected - HTTP handshake failed', `status=${res.statusCode}`);
+                            console.error('WS unexpected-response headers:', JSON.stringify(res.headers || {}));
+                            let body = '';
+                            res.on('data', chunk => { body += chunk.toString(); });
+                            res.on('end', () => {
+                                console.error('WS unexpected-response body:', body);
+                                try { fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [ERROR] WS unexpected-response status=${res.statusCode} headers=${JSON.stringify(res.headers)} body=${body}\n`); } catch (e) {}
+                            });
+                        } catch (e) { console.error('Error handling unexpected-response:', e); }
+                    });
+                } catch (e) {
+                    // Some ws implementations may not support unexpected-response; ignore
+                }
+
+                // Listen for upgrade/headers if available
+                try {
+                    ws.on('upgrade', (res) => {
+                        console.log('WS upgrade response headers:', JSON.stringify(res && res.headers ? res.headers : {}));
+                    });
+                } catch (e) {}
+
+                ws.on('error', (err) => {
+                    console.error('Underlying WS error event:', err && err.message ? err.message : err);
+                });
+
+                console.log('Attached WebSocket diagnostic listeners');
+            } catch (err) {
+                console.error('attachWsDiagnostics error:', err);
+            }
+        }
+
+        // Try to attach diagnostics to the socket
+        attachWsDiagnostics(socket);
+
         // Set a timeout to detect if QR code never arrives
         const qrTimeout = setTimeout(() => {
             if (!qrBase64 && connectionStatus === 'Starting WhatsApp Library...') {
