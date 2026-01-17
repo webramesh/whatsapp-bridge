@@ -256,44 +256,73 @@ app.get('/logs/clear', (req, res) => {
 // Test WhatsApp connectivity
 app.get('/test-connection', async (req, res) => {
     const https = require('https');
-    
-    const testResults = [];
-    
-    // Test 1: Check if we can reach WhatsApp web socket
-    testResults.push('Testing WhatsApp Server Connectivity...\n');
-    
-    try {
-        const testPromise = new Promise((resolve, reject) => {
-            const req = https.get('https://web.whatsapp.com/', (response) => {
-                testResults.push(`✓ Can reach web.whatsapp.com - Status: ${response.statusCode}`);
-                resolve();
-            });
-            req.on('error', (err) => {
-                testResults.push(`✗ Cannot reach web.whatsapp.com - Error: ${err.message}`);
-                reject(err);
-            });
-            req.setTimeout(5000, () => {
-                testResults.push('✗ Timeout reaching web.whatsapp.com');
-                req.destroy();
-                reject(new Error('Timeout'));
-            });
-        });
-        
-        await testPromise.catch(() => {});
-    } catch (err) {
-        testResults.push(`Error: ${err.message}`);
+    const dns = require('dns').promises;
+    const net = require('net');
+
+    const hosts = ['web.whatsapp.com', 'mmg.whatsapp.net', 'eu18.whatsapp.net'];
+    const results = [];
+
+    results.push('WhatsApp connectivity diagnostics');
+    results.push('Timestamp: ' + new Date().toISOString());
+
+    // DNS lookups
+    results.push('\nDNS lookups:');
+    for (const host of hosts) {
+        try {
+            const info = await dns.lookup(host);
+            results.push(`✓ ${host} -> ${info.address} (family ${info.family})`);
+        } catch (err) {
+            results.push(`✗ ${host} DNS lookup failed: ${err.message}`);
+        }
     }
-    
-    testResults.push('\n--- Diagnosis ---');
-    testResults.push('Baileys version: 6.7.21 (Latest) ✓');
-    testResults.push('Node.js: v20.19.4 ✓');
-    testResults.push('Session: Clean (0 files) ✓');
-    testResults.push('\nIssue: Persistent 405 error without QR code generation');
-    testResults.push('\n⚠️ LIKELY CAUSE: Server IP blocked by WhatsApp');
-    testResults.push('\nShared hosting IPs are commonly blocked by WhatsApp.');
-    testResults.push('This is a server infrastructure issue, not a code issue.');
-    
-    res.send(`<html><head><title>Connection Test</title></head><body style="font-family:monospace;padding:20px;background:#1e1e1e;color:#d4d4d4;"><pre>${testResults.join('\n')}</pre><br><a href="/" style="color:#4ec9b0;">Back to Home</a></body></html>`);
+
+    // HTTPS GET to web.whatsapp.com
+    results.push('\nHTTPS probe:');
+    try {
+        const probe = await new Promise((resolve) => {
+            const r = https.get('https://web.whatsapp.com/', { timeout: 7000 }, (resp) => {
+                resolve({ ok: true, status: resp.statusCode });
+            });
+            r.on('error', (e) => resolve({ ok: false, error: e.message }));
+            r.on('timeout', () => { r.destroy(); resolve({ ok: false, error: 'timeout' }); });
+        });
+        if (probe.ok) results.push(`✓ HTTPS web.whatsapp.com reachable - status ${probe.status}`);
+        else results.push(`✗ HTTPS web.whatsapp.com failed - ${probe.error}`);
+    } catch (err) {
+        results.push(`✗ HTTPS probe error: ${err.message}`);
+    }
+
+    // TCP test to resolved IPs on port 443
+    results.push('\nTCP connect to port 443 (first resolved IPs):');
+    for (const host of hosts) {
+        try {
+            const info = await dns.lookup(host).catch(e => { throw e; });
+            const ip = info.address;
+            const ok = await new Promise((resolve) => {
+                const sock = net.connect(443, ip);
+                let finished = false;
+                sock.setTimeout(5000);
+                sock.on('connect', () => { if (!finished) { finished = true; sock.destroy(); resolve(true); } });
+                sock.on('error', () => { if (!finished) { finished = true; resolve(false); } });
+                sock.on('timeout', () => { if (!finished) { finished = true; sock.destroy(); resolve(false); } });
+            });
+            results.push(`- ${host} (${ip}): ${ok ? 'connectable:443' : 'blocked:443'}`);
+        } catch (err) {
+            results.push(`- ${host}: lookup/connect error: ${err.message}`);
+        }
+    }
+
+    results.push('\n--- Diagnosis ---');
+    results.push(`Baileys version: ${(() => {
+        try { const b = require('@whiskeysockets/baileys/package.json'); return b.version; } catch (e) { return 'unknown'; }
+    })()}`);
+    results.push(`Node.js: ${process.version}`);
+    results.push(`Session files present: ${fs.existsSync(SESSION_FOLDER) ? fs.readdirSync(SESSION_FOLDER).length : 0}`);
+
+    // Final note
+    results.push('\nIf HTTPS/TCP to WhatsApp hosts fail, the VPS outbound traffic to WhatsApp is blocked (likely provider or firewall).');
+
+    res.send(`<html><head><title>Connection Test</title></head><body style="font-family:monospace;padding:20px;background:#1e1e1e;color:#d4d4d4;"><pre>${results.join('\n')}</pre><br><a href="/" style="color:#4ec9b0;">Back to Home</a></body></html>`);
 });
 
 app.get('/', (req, res) => {
